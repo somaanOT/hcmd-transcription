@@ -16,13 +16,13 @@ app = FastAPI(title="Real-time Audio Transcription API", version="1.0.0")
 
 # Initialize the Whisper model with a small model optimized for CPU
 # Using "tiny" model for CPU - fastest for low latency
-model = WhisperModel("tiny", device="cpu", compute_type="int8")
+model = WhisperModel("base", device="cpu", compute_type="int8")
 
 # Audio buffer settings
 SAMPLE_RATE = 16000  # Whisper expects 16kHz
-CHUNK_DURATION = 1.5  # Process every 1.5 seconds for low latency
-CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)  # Samples per chunk
+CHUNK_DURATION = 1  # Process every 1.5 seconds for low latency
 OVERLAP_DURATION = 0  # 0.5 second overlap to catch words at boundaries
+CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)  # Samples per chunk
 
 class AudioBuffer:
     """Manages audio buffer for real-time transcription"""
