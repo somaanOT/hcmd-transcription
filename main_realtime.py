@@ -25,66 +25,74 @@ OVERLAP_DURATION = 0  # 0.5 second overlap to catch words at boundaries
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)  # Samples per chunk
 
 class AudioBuffer:
-    """Manages audio buffer for real-time transcription"""
+    """Manages audio buffer for real-time transcription.
+    Uses a sliding window (max 10s). When full, old samples are dropped;
+    total_added and last_processed_samples are in global sample coordinates
+    so we can keep processing indefinitely."""
     def __init__(self, sample_rate=16000):
         self.sample_rate = sample_rate
         self.buffer = deque(maxlen=int(sample_rate * 10))  # Max 10 seconds buffer
         self.lock = threading.Lock()
         self.last_process_time = time.time()
-        self.last_processed_samples = 0  # Track how much we've processed
+        self.last_processed_samples = 0  # Global: next chunk starts here
+        self.total_added = 0  # Global: total samples ever added (for sliding window)
         self.process_interval = CHUNK_DURATION
-        
+
     def add_audio(self, audio_data: bytes):
         """Add audio bytes to buffer"""
         with self.lock:
-            # Convert bytes to numpy array (assuming 16-bit PCM)
             audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+            n = len(audio_array)
             self.buffer.extend(audio_array)
-    
+            self.total_added += n
+
     def get_chunk(self, duration: float = None) -> np.ndarray:
         """Get audio chunk for processing with overlap"""
         if duration is None:
             duration = CHUNK_DURATION
-        
+
         samples_needed = int(self.sample_rate * duration)
         overlap_samples = int(self.sample_rate * OVERLAP_DURATION)
-        
+        new_audio_needed = samples_needed - overlap_samples
+
         with self.lock:
-            # Check if we have enough new audio since last processing
-            new_audio_needed = samples_needed - overlap_samples
-            if len(self.buffer) < self.last_processed_samples + new_audio_needed:
+            start_index = self.total_added - len(self.buffer)
+            if self.last_processed_samples < start_index:
+                self.last_processed_samples = start_index
+
+            unprocessed = self.total_added - self.last_processed_samples
+            if unprocessed < new_audio_needed:
                 return None
-            
-            # Get chunk starting from overlap before last processed position
-            start_pos = max(0, self.last_processed_samples - overlap_samples)
+
+            start_pos = self.last_processed_samples - start_index
             end_pos = start_pos + samples_needed
-            
+
             if end_pos > len(self.buffer):
                 return None
-            
-            # Convert deque to list and extract chunk
+
             buffer_list = list(self.buffer)
             chunk = np.array(buffer_list[start_pos:end_pos])
-            
-            # Update last processed position (advance by chunk minus overlap)
-            self.last_processed_samples = end_pos - overlap_samples
-            
+            self.last_processed_samples = self.last_processed_samples + (samples_needed - overlap_samples)
             return chunk
-    
+
     def has_enough_audio(self) -> bool:
         """Check if we have enough audio for a new chunk"""
         with self.lock:
+            start_index = self.total_added - len(self.buffer)
+            if self.last_processed_samples < start_index:
+                self.last_processed_samples = start_index
             samples_needed = int(self.sample_rate * CHUNK_DURATION)
             overlap_samples = int(self.sample_rate * OVERLAP_DURATION)
             new_audio_needed = samples_needed - overlap_samples
-            return len(self.buffer) >= self.last_processed_samples + new_audio_needed
-    
+            return (self.total_added - self.last_processed_samples) >= new_audio_needed
+
     def clear(self):
         """Clear the buffer"""
         with self.lock:
             self.buffer.clear()
             self.last_processed_samples = 0
-    
+            self.total_added = 0
+
     def size(self) -> int:
         """Get current buffer size in samples"""
         with self.lock:
