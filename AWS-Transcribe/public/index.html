@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medical Real-time Transcription</title>
+  <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="style.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .status { margin: 10px 0; }
+    #transcript { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; }
+    button { margin-right: 10px; }
+    #partialText { color: gray; }
+  </style>
+</head>
+<body>
+  <h1>Medical Real-time Transcription</h1>
+
+  <div class="status">
+    Status: <span id="statusText">Not recording</span> <span id="statusIndicator">⚪</span>
+  </div>
+
+  <button id="startButton">Start Transcription</button>
+  <button id="stopButton">Stop Transcription</button>
+  <button id="clearButton">Clear Transcript</button>
+
+  <div id="transcript"></div>
+
+  <script>
+    const socket = io();
+
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const clearButton = document.getElementById('clearButton');
+    const statusText = document.getElementById('statusText');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const transcript = document.getElementById('transcript');
+
+    let audioContext, audioInput, processor;
+    let currentTranscript = ""; // finalized words
+    let partialTranscript = ""; // partial words
+
+    startButton.addEventListener('click', startRecording);
+    stopButton.addEventListener('click', stopRecording);
+    clearButton.addEventListener('click', clearTranscript);
+
+    function updateStatus(status) {
+      console.log('Status updated:', status);
+      statusText.textContent = status;
+      statusIndicator.textContent = status === 'Recording' ? '🔴' : '⚪';
+    }
+
+    async function startRecording() {
+      console.log('Start button clicked');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('🎤 Microphone access granted');
+
+        audioContext = new AudioContext({ sampleRate: 44100 });
+        console.log('🎚 AudioContext created, sampleRate:', audioContext.sampleRate);
+
+        audioInput = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(1024, 1, 1);
+        audioInput.connect(processor);
+        processor.connect(audioContext.destination);
+
+        processor.onaudioprocess = (e) => {
+          const float32Array = e.inputBuffer.getChannelData(0);
+          const int16Array = new Int16Array(float32Array.length);
+          for (let i = 0; i < float32Array.length; i++) {
+            int16Array[i] = Math.max(-32768, Math.min(32767, Math.floor(float32Array[i] * 32768)));
+          }
+          console.log('📤 Sending audio chunk to server, size:', int16Array.buffer.byteLength);
+          socket.emit('audioData', int16Array.buffer);
+        };
+
+        socket.emit('startTranscription');
+        console.log('▶️ startTranscription event emitted');
+        updateStatus('Recording');
+      } catch (err) {
+        console.error('❌ Error accessing microphone:', err);
+        updateStatus('Error: ' + err.message);
+      }
+    }
+
+    function stopRecording() {
+      console.log('Stop button clicked');
+      if (audioContext && audioContext.state !== 'closed') {
+        audioInput.disconnect();
+        processor.disconnect();
+        audioContext.close();
+        console.log('⏹ AudioContext closed, emitting stopTranscription');
+        socket.emit('stopTranscription');
+        updateStatus('Not recording');
+      }
+    }
+
+    function clearTranscript() {
+      console.log('Clear button clicked');
+      currentTranscript = "";
+      partialTranscript = "";
+      transcript.textContent = "";
+    }
+
+    socket.on('transcription', (data) => {
+      console.log('📝 Received transcription:', data);
+
+      if (data.isFinal) {
+        console.log('✅ Final transcript:', data.text, 'Speaker:', data.speaker);
+        currentTranscript += data.text + " ";
+        partialTranscript = "";
+      } else {
+        console.log('⏳ Partial transcript:', data.text, 'Speaker:', data.speaker);
+        partialTranscript = data.text;
+      }
+
+      let speakerText = data.speaker !== null ? `[Speaker ${data.speaker}] ` : "";
+      transcript.textContent = speakerText + currentTranscript + partialTranscript;
+    });
+
+    socket.on('error', (msg) => {
+      console.error('❌ Server error:', msg);
+      transcript.textContent += '\nError: ' + msg;
+    });
+
+    socket.on('connect', () => {
+      console.log('🟢 Socket connected:', socket.id);
+    });
+
+    socket.on('disconnect', () => {
+      console.log('🔴 Socket disconnected');
+    });
+
+    console.log('Medical transcription client loaded');
+  </script>
+</body>
+</html>
