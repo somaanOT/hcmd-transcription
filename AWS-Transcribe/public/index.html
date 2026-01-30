@@ -75,8 +75,16 @@
           socket.emit('audioData', int16Array.buffer);
         };
 
-        socket.emit('startTranscription');
-        console.log('▶️ startTranscription event emitted');
+        const metadata = {
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          platform: navigator.platform,
+          screenResolution: window.screen ? `${window.screen.width}x${window.screen.height}` : null,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          startedAt: new Date().toISOString()
+        };
+        socket.emit('startTranscription', metadata);
+        console.log('▶️ startTranscription event emitted', metadata);
         updateStatus('Recording');
       } catch (err) {
         console.error('❌ Error accessing microphone:', err);

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recordings – Database</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; max-width: 1200px; }
+    h1 { margin-bottom: 0.5em; }
+    a { color: #0066cc; }
+    .recordings { display: flex; flex-direction: column; gap: 1.5rem; }
+    .rec {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      background: #fafafa;
+    }
+    .rec-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .rec-id { font-weight: 700; font-size: 1.1em; }
+    .rec-dates { color: #666; font-size: 0.9em; }
+    .rec-transcription { white-space: pre-wrap; margin: 0.75rem 0; padding: 0.75rem; background: #fff; border-radius: 4px; border: 1px solid #eee; }
+    .rec-metadata { font-size: 0.85em; color: #555; margin-top: 0.5rem; }
+    .rec-metadata summary { cursor: pointer; }
+    .rec-metadata pre { margin: 0.5rem 0 0; padding: 0.5rem; background: #f5f5f5; border-radius: 4px; overflow-x: auto; }
+    audio { width: 100%; max-width: 400px; margin-top: 0.5rem; }
+    .empty { color: #666; font-style: italic; }
+    .nav { margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">← Back to Transcription</a>
+  </div>
+  <h1>Recordings (latest first)</h1>
+  <div id="loading" class="empty">Loading…</div>
+  <div id="recordings" class="recordings" style="display: none;"></div>
+  <div id="empty" class="empty" style="display: none;">No recordings yet.</div>
+
+  <script>
+    const container = document.getElementById("recordings");
+    const loading = document.getElementById("loading");
+    const emptyEl = document.getElementById("empty");
+
+    function formatDate(s) {
+      if (!s) return "—";
+      try {
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? s : d.toLocaleString();
+      } catch (_) { return s; }
+    }
+
+    function renderMetadata(meta) {
+      if (!meta) return "";
+      try {
+        const obj = typeof meta === "string" ? JSON.parse(meta) : meta;
+        return "<pre>" + JSON.stringify(obj, null, 2) + "</pre>";
+      } catch (_) {
+        return "<pre>" + String(meta) + "</pre>";
+      }
+    }
+
+    function render(rows) {
+      loading.style.display = "none";
+      if (!rows.length) {
+        emptyEl.style.display = "block";
+        return;
+      }
+      container.style.display = "flex";
+      container.innerHTML = rows.map((r) => {
+        const hasAudio = true;
+        return `
+          <div class="rec" data-id="${r.id}">
+            <div class="rec-header">
+              <span class="rec-id">#${r.id}</span>
+              <span class="rec-dates">
+                Started: ${formatDate(r.createdAt)}
+                ${r.transcriptionEndedAt ? " · Ended: " + formatDate(r.transcriptionEndedAt) : ""}
+              </span>
+            </div>
+            ${r.transcription ? `<div class="rec-transcription">${escapeHtml(r.transcription)}</div>` : '<div class="rec-transcription empty">No transcription</div>'}
+            <div>
+              <label>Audio</label>
+              <br>
+              <audio controls preload="metadata" src="/${r.id}.wav">Your browser does not support audio.</audio>
+            </div>
+            <details class="rec-metadata">
+              <summary>Metadata</summary>
+              ${renderMetadata(r.metadata)}
+            </details>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    fetch("/api/recordings")
+      .then((res) => {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      })
+      .then(render)
+      .catch((err) => {
+        loading.textContent = "Error: " + err.message;
+        loading.style.display = "block";
+      });
+  </script>
+</body>
+</html>
