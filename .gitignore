@@ -3,3 +3,8 @@
 *.txt
 node_modules
 .env
+
+
+recordings.db
+recordings.db-shm
+recordings.db-wal
